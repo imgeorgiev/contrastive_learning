@@ -32,8 +32,10 @@ class Net(nn.Module):
         x = F.relu(self.fc1(x))
         return x
 
-    def forward(self, x):
+    def forward(self, x, detach=False):
         x = self.encode(x)
+        if detach:
+            x = x.detach()
         x = self.fc2(x)
         return F.log_softmax(x, dim=1)
 
@@ -51,6 +53,33 @@ def train(model, train_loader, optimizer, device):
         optimizer.zero_grad()
         loss = model.loss(data, target)
         loss.backward()
+        optimizer.step()
+        total_loss += loss.item()
+    return total_loss / len(train_loader)
+
+
+def contrastive_pretrain(model, train_loader, optimizer, device, eps=1.0):
+    model.train()
+    total_loss = 0.0
+    for data, target in train_loader:
+        data = data.to(device)
+        target = target.to(device)
+        optimizer.zero_grad()
+        z = model.encode(data)
+        zs = []
+        for i in range(z.shape[0]):
+            zs.append(z[i] - z)
+        zs = torch.vstack(zs)
+        zs = torch.norm(zs, dim=1)
+        labels_i = target.repeat_interleave(len(target))
+        labels_j = target.repeat(len(target))
+        pos = labels_i == labels_j  # .float()
+        neg = labels_i != labels_j  # .float()
+        loss = pos * zs**2 + neg * torch.max(torch.zeros_like(zs), eps - zs) ** 2
+        loss = loss.sum()
+        # loss = z**2  # + torch.max(torch.zeros_like(zs), eps - zs) ** 2
+        # print(loss.sum())
+        loss.sum().backward()
         optimizer.step()
         total_loss += loss.item()
     return total_loss / len(train_loader)
@@ -154,30 +183,41 @@ def main():
         datasets.MNIST("data", train=True, download=True, transform=tfs),
         batch_size=args.batch_size,
         shuffle=True,
-        **kwargs,
+        **kwargs
     )
     test_loader = DataLoader(
         datasets.MNIST("data", train=False, transform=tfs),
         batch_size=args.batch_size,
         shuffle=False,
-        **kwargs,
+        **kwargs
     )
 
     # Create model
     model = Net().to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
+    # Contrastive pre-training
+    for epoch in range(1, args.epochs + 1):
+        loss = contrastive_pretrain(model, train_loader, optimizer, device)
+        writer.add_scalar("Train/Loss_contrastive", loss, epoch)
+        print("Pretrain : {:}/{:}, train loss: {:.2f}".format(epoch, args.epochs, loss))
+
+    # Now test and store encodings
+    encodings: Tensor = test(model, test_loader, writer, device)
+    encodings = encodings.numpy()
+    np.save("encodings_contrastive_bf", encodings)
+
     # Train
     for epoch in range(1, args.epochs + 1):
         loss = train(model, train_loader, optimizer, device)
         writer.add_scalar("Train/Loss", loss, epoch)
         print("Epoch: {:}/{:}, train loss: {:.2f}".format(epoch, args.epochs, loss))
-    torch.save(model, "mnist_net.pkl")
+    torch.save(model, "mnist_net_contrastive.pkl")
 
     # Now test and store encodings
     encodings: Tensor = test(model, test_loader, writer, device)
     encodings = encodings.numpy()
-    np.save("encodings", encodings)
+    np.save("encodings_contrastive", encodings)
 
 
 if __name__ == "__main__":
