@@ -6,3 +6,4 @@ device: mps
 margin: 10.0
 contrastive_loss_coeff: 1.0
 loss: contrastive
+kld_loss_coeff: 1e-2
