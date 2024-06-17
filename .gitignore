@@ -4,6 +4,7 @@ runs/
 *.npy
 *.pkl
 *.pdf
+*.pt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

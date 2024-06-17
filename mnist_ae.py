@@ -63,7 +63,7 @@ def train(cfg: DictConfig):
     tf = transforms.Compose(
         [transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))]
     )
-    train_data = MNIST(root="./data", train=True, transform=tf)
+    train_data = MNIST(root="./data", train=True, transform=tf, download=True)
     train_loader = DataLoader(
         train_data, batch_size=cfg.batch_size, shuffle=True, num_workers=4
     )
@@ -74,10 +74,26 @@ def train(cfg: DictConfig):
 
     for i in range(cfg.epochs):
         total_loss = 0.0
-        for data, _ in tqdm(train_loader):
+        for data, labels in tqdm(train_loader):
+            data = data.to(device)
+            labels = labels.to(device)
             opt.zero_grad()
-            output = model(data.to(device))
-            loss = F.mse_loss(output, data.to(device))
+            z = model.encoder(data)
+            output = model.decoder(z)
+            if cfg.loss == "mse":
+                loss = F.mse_loss(output, data)
+            elif cfg.loss == "contrastive":
+                # contrastive loss
+                dim = labels.shape[0]
+                mask = labels.repeat(dim) == torch.repeat_interleave(labels, dim)
+                dists = torch.norm(
+                    z.repeat((dim, 1)) - torch.repeat_interleave(z, dim, dim=0),
+                    dim=1,
+                )
+                # TODO not sure if correct for this to be the only loss
+                loss = cfg.contrastive_loss_coeff * torch.mean(
+                    mask * dists + (~mask) * torch.clamp(cfg.margin - dists, min=0) ** 2
+                )
             loss.backward()
             opt.step()
             total_loss += loss.item()
@@ -94,7 +110,7 @@ def train(cfg: DictConfig):
             f" Epoch {i}/{cfg.epochs}  Train loss: {total_loss:.2f} Test loss: {test_loss:.2f}"
         )
 
-    torch.save(model, "mnist_ae.pt")
+    torch.save(model, f"mnist_ae_{cfg.loss}.pt")
 
     # collect encodings for analysis
     print("Collecting encodings")
@@ -104,25 +120,25 @@ def train(cfg: DictConfig):
             encodings.append(model.encoder(data.to(device)).cpu())
     encodings = torch.vstack(encodings)
     encodings = np.array(encodings)
-    np.save("encodings.npy", encodings)
+    np.save(f"encodings_{cfg.loss}.npy", encodings)
 
-    # decompose into principal components
-    tsne = TSNE(n_components=2, verbose=1, random_state=cfg.seed)
-    z = tsne.fit_transform(encodings)
-    df = pd.DataFrame()
-    df["y"] = test_data.test_labels.numpy()
-    df["comp-1"] = z[:, 0]
-    df["comp-2"] = z[:, 1]
+    # # decompose into principal components
+    # tsne = TSNE(n_components=2, verbose=1, random_state=cfg.seed)
+    # z = tsne.fit_transform(encodings)
+    # df = pd.DataFrame()
+    # df["y"] = test_data.test_labels.numpy()
+    # df["comp-1"] = z[:, 0]
+    # df["comp-2"] = z[:, 1]
 
-    # plot results
-    sns.scatterplot(
-        data=df,
-        x="comp-1",
-        y="comp-2",
-        hue=df.y.tolist(),
-        palette=sns.color_palette("hls", len(test_data.classes)),
-    )
-    plt.savefig("encodings.pdf")
+    # # plot results
+    # sns.scatterplot(
+    #     data=df,
+    #     x="comp-1",
+    #     y="comp-2",
+    #     hue=df.y.tolist(),
+    #     palette=sns.color_palette("hls", len(test_data.classes)),
+    # )
+    # plt.savefig(f"encodings_{cfg.loss}.pdf")
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ $$ \mathcal{L}_{MSE}(x, \theta) = || f_\theta^d(f^e_\theta(x)) - x ||^2_2 $$
 
 2. **Contrastive loss**
 
-$$ \mathcal{L}_{cont}(x_i, x_j, \theta) = \mathbb{1}[y_i = y_j] ||f^e_\theta(x_i) - f^d_\theta(x_j) ||_2 + \mathbb{1}[y_i \neq y_j] \max(0, \epsilon - || f^e_\theta(x_i) - f^d_\theta(x_j) ||_2) $$
+$$ \mathcal{L}_{cont}(x_i, x_j, \theta) = \mathbb{1}[y_i = y_j] ||f^e_\theta(x_i) - f^e_\theta(x_j) ||_2 + \mathbb{1}[y_i \neq y_j] \max(0, \epsilon - || f^e_\theta(x_i) - f^e_\theta(x_j) ||_2) $$
 
 where is a hyperparameter, defining the lower bound distance between samples of different classes. Taken from [Lilian Weng's blog post](https://lilianweng.github.io/posts/2021-05-31-contrastive/).
 
